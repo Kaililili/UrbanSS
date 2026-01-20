@@ -1,0 +1,21 @@
+# distributed / system
+nodes: 1
+gpus: 1
+nr: 0
+dataparallel: 0
+workers: 8
+
+# train options
+seed: 42
+batch_size: 128
+image_size: 256
+start_epoch: 0
+epochs: 500
+
+# model options
+resnet: "resnet18"
+projection_dim: 64
+model_path: "./model"
+
+# loss options
+temperature: 0.5
