@@ -59,8 +59,6 @@ def test(model, dataloader, criterion, device):
     with torch.no_grad():
         for poi, img, height, labels in dataloader:
             poi, img, height, labels = poi.to(device), img.to(device), height.to(device), labels.to(device)
-
-
             predictions, weight = model([poi, img, height])
 
             loss = criterion(predictions, labels)
@@ -68,7 +66,6 @@ def test(model, dataloader, criterion, device):
 
             all_predictions.extend(predictions.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
-
 
     avg_loss = total_loss / len(dataloader.dataset)
     return avg_loss, np.array(all_predictions), np.array(all_labels)
@@ -79,11 +76,9 @@ class AdaptiveOSFModule(nn.Module):
         self.num_modalities = len(embedding_dims)
         self.common_dim = common_dim
 
-
         self.projection_layers = nn.ModuleList([
             nn.Linear(d, common_dim) for d in embedding_dims
         ])
-
 
         self.order_net = nn.Sequential(
             nn.Linear(common_dim * self.num_modalities, common_dim),
@@ -99,76 +94,70 @@ class AdaptiveOSFModule(nn.Module):
 
         self.layer_norm = nn.LayerNorm(common_dim)
 
-
     def forward(self, embeddings):
-
         B = embeddings[0].size(0)
         M = self.num_modalities
+        D = self.common_dim
 
+        projected_embs = [proj(e) for proj, e in zip(self.projection_layers, embeddings)]
+        proj = torch.stack(projected_embs, dim=1)  # (B, M, D)
 
-        projected_embs = [proj(e) for proj, e in zip(self.projection_layers, embeddings)]  # list of (B, D)
-        concat_all = torch.cat(projected_embs, dim=-1)  # (B, M*D)
-
+        concat_all = proj.view(B, -1)
 
         weights = F.softmax(self.order_net(concat_all), dim=-1)  # (B, M)
-        alpha = torch.sigmoid(self.alpha_net(concat_all))  # (B, 1)
+        alpha = torch.sigmoid(self.alpha_net(concat_all))        # (B, 1)
+
         score1 = weights
         score2 = -weights
-        final_score = alpha * score1 + (1 - alpha) * score2  # (B, M)
+        final_score = alpha * score1 + (1 - alpha) * score2
+
         sorted_idx = torch.argsort(final_score, dim=-1)  # (B, M)
 
-        fused_all = []
-        fusion_steps_all = []
-        order_list = []
+        idx = sorted_idx.unsqueeze(-1).expand(-1, -1, D)   # (B, M, D)
+        ordered_proj = torch.gather(proj, 1, idx)          # (B, M, D)
+        ordered_weights = torch.gather(weights, 1, sorted_idx)  # (B, M)
 
-        for b in range(B):
-            fused = projected_embs[0][b].new_zeros(self.common_dim)
-            steps = []
-            order = sorted_idx[b]
+        fused = torch.zeros(B, D, device=proj.device)
+        fusion_steps = []
 
-            for t in range(M):
-                i_idx = order[t].item()
-                emb = projected_embs[i_idx][b]
-                weight = weights[b, i_idx]
+        for t in range(M):
+            emb = ordered_proj[:, t, :]                  # (B, D)
+            w = ordered_weights[:, t].unsqueeze(-1)      # (B, 1)
 
-                fused = self.layer_norm(
-                    fused + weight * self.fuse_layers[min(t, len(self.fuse_layers) - 1)](
-                        torch.cat([fused, emb], dim=-1)
-                    )
+            fused = self.layer_norm(
+                fused + w * self.fuse_layers[min(t, len(self.fuse_layers)-1)](
+                    torch.cat([fused, emb], dim=-1)
                 )
-                fused = F.relu(fused)
-                steps.append(fused)
+            )
+            fused = F.relu(fused)
+            fusion_steps.append(fused)
 
-            fused_all.append(fused)
-            fusion_steps_all.append(steps)
-            order_list.append(order)
-
-        fused_all = torch.stack(fused_all, dim=0)  # (B, D)
-        return fused_all, projected_embs, fusion_steps_all, weights, order_list
+        return fused, ordered_proj, fusion_steps, ordered_weights, sorted_idx
 
 
-def orthogonal_loss(fusion_steps_all, projected_embs, order_list, lambda_l1=0.01, lambda_l2=0.01):
 
+def orthogonal_loss(fusion_steps, ordered_proj, lambda_l1=0.01, lambda_l2=0.01):
+    """
+    fusion_steps: list of (B, D)
+    ordered_proj: (B, M, D)
+    """
     loss = 0.0
-    B = len(fusion_steps_all)
+    M = ordered_proj.size(1)
 
-    for b in range(B):
-        steps = fusion_steps_all[b]
-        order = order_list[b]  # (M,)
+    for t in range(1, M):
+        F_prev = fusion_steps[t - 1]       # (B, D)
+        E_new = ordered_proj[:, t, :]      # (B, D)
 
-        for t in range(1, len(steps)):
-            F_prev = steps[t - 1]
-            emb_idx = order[t].item()
-            E_new = projected_embs[emb_idx][b]
+        dot = torch.sum(F_prev * E_new, dim=-1)  # (B,)
 
-            dot = torch.sum(F_prev * E_new)
-            loss += lambda_l1 * torch.abs(dot) + lambda_l2 * dot ** 2
+        loss += lambda_l1 * torch.mean(torch.abs(dot)) + \
+                lambda_l2 * torch.mean(dot ** 2)
 
-    return loss / B
+    return loss
 
 
 class AdaptiveOSFModel(nn.Module):
-    def __init__(self, embedding_dims, common_dim):
+    def __init__(self, embedding_dims, common_dim, save_fused=True):
         super().__init__()
         self.osf_fusion = AdaptiveOSFModule(embedding_dims, common_dim)
         hidden_dim = common_dim // 2
@@ -179,17 +168,20 @@ class AdaptiveOSFModel(nn.Module):
             nn.Linear(hidden_dim, 1)
         )
 
+        self.save_fused = save_fused
+        self.saved_fused = []  
 
     def forward(self, embeddings, labels=None, lambda_ortho=0.1):
-        fused_embedding, projected_embs, fusion_steps, weights, order_list = self.osf_fusion(embeddings)
+        fused_embedding, ordered_proj, fusion_steps, weights, order = self.osf_fusion(embeddings)
         preds = self.predictor(fused_embedding)
-
 
         if labels is None:
             return preds, weights, fused_embedding
 
         loss_task = F.mse_loss(preds, labels)
-        loss_ortho = orthogonal_loss(fusion_steps, projected_embs, order_list)
+
+        loss_ortho = orthogonal_loss(fusion_steps, ordered_proj)
+
         loss_total = loss_task + lambda_ortho * loss_ortho
 
         return loss_total, preds, weights
