@@ -1,3 +1,4 @@
+import argparse
 import random
 import rasterio
 from pyproj import Transformer
@@ -83,8 +84,12 @@ def which_region_fast(lon, lat):
     return None
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Building height CNN training")
+    parser.add_argument("--city", type=str, default="Shenzhen", help="city name")
+    parser.add_argument("--gpu", type=int, default=0, help="GPU index")
+    args = parser.parse_args()
 
-    city = "Shenzhen"
+    city = args.city
     region_path = f""
     region_df = pd.read_csv(region_path)
 
@@ -152,7 +157,7 @@ if __name__ == '__main__':
         transforms.ConvertImageDtype(torch.float32),
     ])
 
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device(f'cuda:{args.gpu}' if torch.cuda.is_available() else 'cpu')
     dataset = HeightDataset(cnn_inputs, contrastive_transform)
 
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
@@ -190,8 +195,13 @@ if __name__ == '__main__':
             embedding = model(tensor_input.unsqueeze(0))
             all_embeddings.append(embedding.squeeze(0).cpu().numpy())
 
+    # also save the 64x64 height crops
+    # (used by img/train.py for hard-negative mining; row order matches the region list)
+    height_crops = np.stack([item['tensor'].squeeze(0).numpy() for item in cnn_inputs], axis=0)
+    np.save("height_crop_raw.npy", height_crops)
+
     all_embeddings = np.stack(all_embeddings, axis=0)
-    np.save(f"", all_embeddings)
+    np.save("height_embedding.npy", all_embeddings)
 
 
 

@@ -1,8 +1,13 @@
+import argparse
 import pandas as pd
 import numpy as np
 import random
 
-city = "Shanghai"
+parser = argparse.ArgumentParser(description="Generate region-level POI embeddings")
+parser.add_argument("--city", type=str, default="Shanghai", help="city name")
+args = parser.parse_args()
+city = args.city
+
 region_path = f""
 region_df = pd.read_csv(region_path)
 

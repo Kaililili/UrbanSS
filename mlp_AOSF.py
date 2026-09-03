@@ -1,6 +1,6 @@
+import argparse
 import torch
 import torch.optim as optim
-from statsmodels.sandbox.nonparametric.tests.ex_smoothers import weights
 from torch.utils.data import DataLoader, Dataset
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 from sklearn.model_selection import train_test_split
@@ -241,6 +241,11 @@ def choose(city, indic):
     return features1, features2, features3,  indicator, features1.shape[-1], features2.shape[-1], features3.shape[-1]
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="AOSF downstream prediction")
+    parser.add_argument("--city", type=str, default="Beijing", help="city name")
+    parser.add_argument("--gpu", type=int, default=0, help="GPU index")
+    args = parser.parse_args()
+
     seed = 1
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -250,8 +255,8 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    city = "Beijing"
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    city = args.city
+    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
     indic = "popcount"
     #indic = "GDP"

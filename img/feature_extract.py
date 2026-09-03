@@ -1,11 +1,11 @@
 import argparse
+import os
 import torch
 import torchvision
 import numpy as np
 from torch.nn.functional import batch_norm
 
 from dataloader import *
-from img.dataloader import Si_Dataset_extract
 from simclr import SimCLR
 from simclr.modules import get_resnet
 from simclr.modules.transformations import TransformsSimCLR
@@ -46,20 +46,25 @@ def get_features(loader, model, device):
     return feature_vector
 
 if __name__ == "__main__":
-    city = "Shanghai"
-
     si_path = ""
     df = pd.read_csv(si_path, header=0)
     img_list = df['satellite_img_name'].tolist()
     print(len(img_list))
 
     parser = argparse.ArgumentParser(description="SimCLR")
-    config = yaml_config_hook("/ssd-data2/nkl2024/satellite-POI/config/config.yaml")
+    parser.add_argument(
+        "--config", type=str,
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.yaml"),
+        help="path to the config yaml file",
+    )
+    parser.add_argument("--city", type=str, default="Shanghai", help="city name")
+    parser.add_argument("--gpu", type=int, default=0, help="GPU index")
+    config = yaml_config_hook(parser.parse_known_args()[0].config)
     for k, v in config.items():
         parser.add_argument(f"--{k}", default=v, type=type(v))
 
     args = parser.parse_args()
-    args.device = torch.device("cuda:7" if torch.cuda.is_available() else "cpu")
+    args.device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
 
     train_dataset = Si_Dataset_extract(
         si_path,

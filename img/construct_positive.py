@@ -1,9 +1,14 @@
+import argparse
 import pandas as pd
 import numpy as np
 from geopy.distance import great_circle
 
 
-city="Shenzhen"
+parser = argparse.ArgumentParser(description="Construct nearest-region positive list")
+parser.add_argument("--city", type=str, default="Shenzhen", help="city name")
+args = parser.parse_args()
+city = args.city
+
 csv_path = f""
 df = pd.read_csv(csv_path)
 

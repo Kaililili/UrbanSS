@@ -10,7 +10,7 @@ seed: 42
 batch_size: 128
 image_size: 256
 start_epoch: 0
-epochs: 500
+epochs: 300
 
 # model options
 resnet: "resnet18"

@@ -41,6 +41,11 @@ def set_seed(seed=42):
     torch.backends.cudnn.benchmark = False
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="POI semantic contrastive training")
+    parser.add_argument("--city", type=str, default="Shanghai", help="city name")
+    parser.add_argument("--gpu", type=int, default=0, help="GPU index")
+    args = parser.parse_args()
+
     seed = 1
     set_seed(seed)
 
@@ -48,8 +53,8 @@ if __name__ == "__main__":
     BATCH_SIZE = 128
     EPOCH = 500
     SAVE_INTERVAL = 10
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    city = "Shanghai"
+    device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
+    city = args.city
 
     llmembed_path1 = f""
     llmembed_path2 = f""
@@ -120,18 +125,18 @@ if __name__ == "__main__":
             best_loss = val_loss
             best_state = model.state_dict()
             torch.save(best_state, save_path)
-            print(f"✅ Saved new best model at epoch {epoch + 1}, val_loss={val_loss:.4f}")
+            print(f"Saved new best model at epoch {epoch + 1}, val_loss={val_loss:.4f}")
             patience_counter = 0
         else:
             patience_counter += 1
-            print(f"⚠️ No improvement. Patience {patience_counter}/{patience}")
+            print(f"No improvement. Patience {patience_counter}/{patience}")
             if patience_counter >= patience:
-                print("⏹️ Early stopping triggered.")
+                print("Early stopping triggered.")
                 break
 
     print(f"Training done. Best val_loss={best_loss:.4f}")
 
-    #########save embed ################
+    # save embeddings
     model.eval()
     region_num = 4584
     poi_dataset = PoiExtractDataset(city, region_num, device)
