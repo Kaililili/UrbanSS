@@ -1,7 +1,7 @@
 # UrbanSS
 
 Requirements: `pip install -r requirements.txt`
-Data layout follows `data/{city}_example/` (example files only; the real collected data is not released). All regions are defined by `{city}_si_list.csv` (columns: `satellite_img_name`, `WGS84_lower_left`, `WGS84_upper_right`; row index = region id). Every embedding/label file is aligned to it.
+Data layout follows `data/{city}_example/` . All regions are defined by `{city}_si_list.csv` (columns: `satellite_img_name`, `WGS84_lower_left`, `WGS84_upper_right`; row index = region id). Every embedding/label file is aligned to it.
 
 ## 1. POI Semantic Module
 Input: `{city}_POI_list.csv` → generate two prompts (`cat_prompt`, `surrounding_prompt`) with the method in the paper → `{city}_POI_With_prompts.csv` (`region_id` maps each POI to a region in `{city}_si_list.csv`)
